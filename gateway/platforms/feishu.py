@@ -2163,13 +2163,28 @@ class FeishuAdapter(BasePlatformAdapter):
         chat_id = getattr(message, "chat_id", "") or ""
         chat_info = await self.get_chat_info(chat_id)
         sender_profile = await self._resolve_sender_profile(sender_id)
+        _raw_thread_id = getattr(message, "thread_id", None) or None
+        _raw_root_id = getattr(message, "root_id", None) or None
+        _resolved_chat_type = self._resolve_source_chat_type(chat_info=chat_info, event_chat_type=chat_type)
+        logger.debug(
+            "[Feishu] Thread context: thread_id=%r root_id=%r parent_id=%r chat_type=%r resolved=%r",
+            _raw_thread_id, _raw_root_id,
+            getattr(message, "parent_id", None),
+            chat_info.get("type"), _resolved_chat_type,
+        )
+        # In topic-mode groups (forum), use root_id as fallback for thread_id
+        # to ensure reply_in_thread=True so replies stay in the same topic.
+        _effective_thread_id = _raw_thread_id
+        if not _effective_thread_id and _resolved_chat_type == "forum" and _raw_root_id:
+            _effective_thread_id = _raw_root_id
+            logger.debug("[Feishu] Using root_id %s as thread_id fallback for forum chat", _raw_root_id)
         source = self.build_source(
             chat_id=chat_id,
             chat_name=chat_info.get("name") or chat_id or "Feishu Chat",
-            chat_type=self._resolve_source_chat_type(chat_info=chat_info, event_chat_type=chat_type),
+            chat_type=_resolved_chat_type,
             user_id=sender_profile["user_id"],
             user_name=sender_profile["user_name"],
-            thread_id=getattr(message, "thread_id", None) or None,
+            thread_id=_effective_thread_id,
             user_id_alt=sender_profile["user_id_alt"],
         )
         normalized = MessageEvent(
